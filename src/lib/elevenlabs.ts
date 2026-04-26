@@ -1,8 +1,14 @@
-let cachedVoices: Array<{ voice_id: string; name: string }> = [];
+let cachedVoices: Array<{ voice_id: string; name: string; category?: string }> = [];
+
+interface VoiceEntry {
+  voice_id: string;
+  name: string;
+  category?: string;
+}
 
 async function fetchAvailableVoices(
   apiKey: string
-): Promise<Array<{ voice_id: string; name: string }>> {
+): Promise<VoiceEntry[]> {
   if (cachedVoices.length > 0) return cachedVoices;
 
   const response = await fetch('https://api.elevenlabs.io/v1/voices', {
@@ -14,14 +20,27 @@ async function fetchAvailableVoices(
   }
 
   const data = await response.json();
-  cachedVoices = (data.voices || []).map(
-    (v: { voice_id: string; name: string }) => ({
+  const allVoices: VoiceEntry[] = (data.voices || []).map(
+    (v: { voice_id: string; name: string; category?: string }) => ({
       voice_id: v.voice_id,
       name: v.name,
+      category: v.category,
     })
   );
+
+  // Prefer a diverse set: prioritise premade & professional voices,
+  // then fill with any remaining. This gives the hash-based picker
+  // a richer pool to choose from.
+  const preferred = allVoices.filter(
+    (v) => v.category === 'premade' || v.category === 'professional'
+  );
+  const rest = allVoices.filter(
+    (v) => v.category !== 'premade' && v.category !== 'professional'
+  );
+  cachedVoices = [...preferred, ...rest];
+
   console.log(
-    `[ElevenLabs] Available voices: ${cachedVoices.map((v) => v.name).join(', ')}`
+    `[ElevenLabs] ${cachedVoices.length} voices loaded (${preferred.length} premade/professional). Names: ${cachedVoices.map((v) => v.name).join(', ')}`
   );
   return cachedVoices;
 }
@@ -35,14 +54,28 @@ function hashString(str: string): number {
   return Math.abs(hash);
 }
 
+/**
+ * Deterministic per-pet voice settings for expressive character delivery.
+ */
+function getVoiceSettings(petId: string) {
+  const hash = hashString(petId);
+  return {
+    stability: 0.3 + (hash % 20) / 100,           // 0.30 – 0.49
+    similarity_boost: 0.65 + (hash % 15) / 100,    // 0.65 – 0.79
+    style: 0.5 + (hash % 30) / 100,                // 0.50 – 0.79
+    use_speaker_boost: true,
+  };
+}
+
 export async function getVoiceForPet(petId: string): Promise<string> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) throw new Error('ELEVENLABS_API_KEY not set');
   const voices = await fetchAvailableVoices(apiKey);
   if (voices.length === 0) throw new Error('No voices available');
   const index = hashString(petId) % voices.length;
+  const settings = getVoiceSettings(petId);
   console.log(
-    `[ElevenLabs] Pet ${petId} assigned voice: ${voices[index].name}`
+    `[ElevenLabs] Pet ${petId} → voice: "${voices[index].name}" (stability: ${settings.stability.toFixed(2)}, similarity: ${settings.similarity_boost.toFixed(2)}, style: ${settings.style.toFixed(2)})`
   );
   return voices[index].voice_id;
 }
@@ -102,10 +135,9 @@ async function _textToSpeechInternal(
         body: JSON.stringify({
           text,
           model_id: 'eleven_multilingual_v2',
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-          },
+          voice_settings: petId
+            ? getVoiceSettings(petId)
+            : { stability: 0.4, similarity_boost: 0.75, style: 0.5, use_speaker_boost: true },
         }),
       }
     );
