@@ -12,9 +12,11 @@ function getCachePath(text: string, voiceId: string): string {
 }
 
 export async function POST(request: Request) {
+  let requestText = ''; // hoisted for catch block fallback
   try {
     const body = await request.json();
     const { text, voiceId, petId } = body as { text: string; voiceId?: string; petId?: string };
+    requestText = text || '';
 
     if (!text || typeof text !== 'string') {
       console.warn('[Voice API] Missing or invalid text field');
@@ -67,6 +69,10 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Voice API error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Signal the client to use browser TTS fallback instead of failing
+    return NextResponse.json(
+      { fallback: true, text: requestText, error: message },
+      { status: 200 }
+    );
   }
 }

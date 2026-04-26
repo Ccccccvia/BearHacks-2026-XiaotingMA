@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { usePetStore } from '@/lib/pet-store';
 import { stripMarkdown } from '@/lib/utils';
+import { speakWithBrowserTTS, stopBrowserTTS } from '@/lib/browser-tts';
 import type { PetProfile, PersonalityResult } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Volume2,
-  VolumeX,
   Loader2,
   MessageCircle,
   Camera,
@@ -107,6 +107,7 @@ export default function ProfilePage() {
   const [voiceLoading, setVoiceLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastPetIdRef = useRef<string | null>(null);
+  const browserTTSActiveRef = useRef(false);
 
   /* ---- Generate voice for a given pet (click-to-play) ---- */
   const generateAndPlayVoice = useCallback(async (text: string, petId: string, voiceId?: string) => {
@@ -143,16 +144,33 @@ export default function ProfilePage() {
         body: JSON.stringify({ text, voiceId, petId }),
       });
 
+      const ct = voiceRes.headers.get('content-type') || '';
+
+      // Check if server signalled browser TTS fallback
+      if (ct.includes('application/json')) {
+        const data = await voiceRes.json();
+        if (data.fallback) {
+          console.log('[Profile] Using browser TTS fallback');
+          setVoiceLoading(false);
+          setIsPlaying(true);
+          browserTTSActiveRef.current = true;
+          try {
+            await speakWithBrowserTTS(data.text || text);
+          } finally {
+            browserTTSActiveRef.current = false;
+            setIsPlaying(false);
+          }
+          return;
+        }
+        // Non-fallback JSON means error
+        throw new Error(data.error || 'Voice generation failed');
+      }
+
       if (!voiceRes.ok) {
-        const errBody = await voiceRes.text();
-        console.error('[Profile] Voice API error:', voiceRes.status, errBody);
         throw new Error(`Voice generation failed (${voiceRes.status})`);
       }
 
-      const ct = voiceRes.headers.get('content-type') || '';
       if (!ct.includes('audio')) {
-        const errBody = await voiceRes.text();
-        console.error('[Profile] Voice API returned non-audio content-type:', ct, errBody);
         throw new Error('Voice API returned non-audio response');
       }
 
@@ -284,6 +302,7 @@ export default function ProfilePage() {
         audioRef.current.pause();
         audioRef.current = null;
       }
+      stopBrowserTTS();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -294,6 +313,14 @@ export default function ProfilePage() {
 
   /* ---- Play / Pause toggle ---- */
   const toggleAudio = () => {
+    // Handle browser TTS stop
+    if (browserTTSActiveRef.current && isPlaying) {
+      stopBrowserTTS();
+      browserTTSActiveRef.current = false;
+      setIsPlaying(false);
+      return;
+    }
+
     if (!audioRef.current && audioUrl) {
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
@@ -428,10 +455,18 @@ export default function ProfilePage() {
               style={{ animationDelay: '0.5s' }}
             >
               {voiceError ? (
-                <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-3">
-                  <VolumeX className="h-4 w-4" />
-                  <span>Voice temporarily unavailable</span>
-                </div>
+                <button
+                  onClick={() => {
+                    setVoiceError(false);
+                    generateAndPlayVoice(pet.introText, pet.id, pet.voiceId);
+                  }}
+                  className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl bg-primary/5 hover:bg-primary/10 border border-primary/10 transition-colors cursor-pointer"
+                >
+                  <Volume2 className="h-5 w-5 text-muted-foreground shrink-0" />
+                  <span className="text-sm text-foreground/80">
+                    Tap to retry voice
+                  </span>
+                </button>
               ) : voiceLoading ? (
                 <div className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl bg-primary/5 border border-primary/10">
                   <Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />

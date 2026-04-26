@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { usePetStore } from '@/lib/pet-store';
 import { stripMarkdown } from '@/lib/utils';
+import { speakWithBrowserTTS, stopBrowserTTS } from '@/lib/browser-tts';
 import type { PetProfile, ChatMessage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -173,19 +174,33 @@ export default function ChatPage() {
   const [playingId, setPlayingId] = useState<string | null>(null);
 
   /* ---- Generate voice on demand for a specific message ---- */
-  const generateVoiceForMessage = useCallback(async (text: string, petProfile: PetProfile, _messageId: string) => {
+  const generateVoiceForMessage = useCallback(async (text: string, petProfile: PetProfile, _messageId: string): Promise<string | undefined> => {
     try {
       const res = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, voiceId: petProfile.voiceId, petId: petProfile.id }),
       });
+
+      const ct = res.headers.get('content-type') || '';
+
+      // Check if server signalled browser TTS fallback
+      if (ct.includes('application/json')) {
+        const data = await res.json();
+        if (data.fallback) {
+          console.log('[Chat] Using browser TTS fallback');
+          // Return a special marker so the caller knows to use browser TTS
+          return `__browser_tts__${data.text || text}`;
+        }
+        console.error('[Chat] Voice API error:', data.error);
+        return undefined;
+      }
+
       if (!res.ok) {
         const errBody = await res.text();
         console.error('[Chat] Voice API error:', res.status, errBody);
         return undefined;
       }
-      const ct = res.headers.get('content-type') || '';
       if (!ct.includes('audio')) {
         console.error('[Chat] Voice API returned non-audio content-type:', ct);
         return undefined;
@@ -215,7 +230,13 @@ export default function ChatPage() {
   /* ---- Refs ---- */
 
   /* ---- Play audio (stops any previous playback first) ---- */
+  const browserTTSActiveRef = useRef(false);
   const playAudio = useCallback((url: string, messageId: string) => {
+    // Stop browser TTS if active
+    if (browserTTSActiveRef.current) {
+      stopBrowserTTS();
+      browserTTSActiveRef.current = false;
+    }
     // Always stop previous audio before starting new
     if (audioRef.current) {
       audioRef.current.pause();
@@ -236,6 +257,10 @@ export default function ChatPage() {
   const handlePlayAudio = useCallback(async (msg: ChatMessage) => {
     // If already playing this message, stop it
     if (playingId === msg.id) {
+      if (browserTTSActiveRef.current) {
+        stopBrowserTTS();
+        browserTTSActiveRef.current = false;
+      }
       audioRef.current?.pause();
       setPlayingId(null);
       audioRef.current = null;
@@ -253,6 +278,20 @@ export default function ChatPage() {
     setLoadingVoiceId(msg.id);
     const audioUrl = await generateVoiceForMessage(msg.content, pet, msg.id);
     setLoadingVoiceId(null);
+
+    if (audioUrl && audioUrl.startsWith('__browser_tts__')) {
+      // Use browser TTS fallback
+      const ttsText = audioUrl.slice('__browser_tts__'.length);
+      setPlayingId(msg.id);
+      browserTTSActiveRef.current = true;
+      speakWithBrowserTTS(ttsText)
+        .finally(() => {
+          browserTTSActiveRef.current = false;
+          setPlayingId(null);
+        });
+      return;
+    }
+
     if (audioUrl) {
       const msgWithAudio = { ...msg, audioUrl };
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msgWithAudio : m)));
@@ -400,6 +439,7 @@ export default function ChatPage() {
         audioRef.current.pause();
         audioRef.current = null;
       }
+      stopBrowserTTS();
       urls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
