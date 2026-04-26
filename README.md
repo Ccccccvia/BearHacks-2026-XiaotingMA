@@ -106,7 +106,7 @@ bash /opt/petspeak/deploy/update.sh
 
 ## 🎬 Demo
 
-[Live Demo](YOUR_DEPLOYMENT_URL) | [Demo Video](YOUR_VIDEO_URL)
+[Live Demo](https://bear-hacks-2026-xiaoting-ma.vercel.app/) | [Demo Video](#)
 
 ## 👤 Developer
 
