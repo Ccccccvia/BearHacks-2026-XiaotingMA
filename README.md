@@ -40,8 +40,8 @@
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/petspeak.git
-   cd petspeak
+   git clone https://github.com/Ccccccvia/BearHacks-2026-XiaotingMA.git
+   cd BearHacks-2026-XiaotingMA
    ```
 
 2. Install dependencies:
@@ -84,6 +84,25 @@ PetSpeak targets the following BearHacks 2026 prize tracks:
 | Use of Vultr | Cloud deployment |
 | UI/UX Design | Warm, animated pet-themed interface |
 | Most Fun Project | Give your pet a voice and personality! |
+
+## 🚀 Deployment (Vultr)
+
+### Quick Deploy
+1. Create a Vultr Cloud Compute instance (Ubuntu 24.04, any plan)
+2. SSH into your server: `ssh root@YOUR_IP`
+3. Run the setup script:
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/Ccccccvia/BearHacks-2026-XiaotingMA/main/deploy/setup.sh | bash
+   ```
+4. Edit environment variables: `nano /opt/petspeak/.env.local`
+5. Start the app: `bash /opt/petspeak/deploy/start.sh`
+6. Visit `http://YOUR_IP` in your browser!
+
+### Updating
+After pushing new changes to GitHub:
+```bash
+bash /opt/petspeak/deploy/update.sh
+```
 
 ## 🎬 Demo
 
