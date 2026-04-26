@@ -99,6 +99,39 @@ export default function ScanPage() {
     reader.readAsDataURL(file);
   }, []);
 
+  // ---------- Sample Image ----------
+  const [loadingSample, setLoadingSample] = useState<string | null>(null);
+
+  const handleSampleImage = useCallback(
+    async (imagePath: string, petName: string) => {
+      setLoadingSample(petName);
+      try {
+        const response = await fetch(imagePath);
+        if (!response.ok) {
+          throw new Error(`Image not found: ${response.status}`);
+        }
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.startsWith('image/')) {
+          throw new Error('Invalid image response — expected an image file');
+        }
+        const blob = await response.blob();
+        const file = new File([blob], `${petName}.jpg`, { type: 'image/jpeg' });
+        handleFile(file);
+      } catch (error) {
+        console.error('Failed to load sample image:', error);
+        setErrorMsg(
+          error instanceof Error
+            ? error.message
+            : 'Failed to load sample image. Please try uploading your own photo.'
+        );
+        setPageState('error');
+      } finally {
+        setLoadingSample(null);
+      }
+    },
+    [handleFile]
+  );
+
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
@@ -121,6 +154,15 @@ export default function ScanPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: base64 }),
       });
+
+      // Guard: ensure we received JSON before parsing
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new Error(
+          `Server returned an unexpected response (${res.status}). Please try again.`
+        );
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Analysis failed');
       setResult(data as VisionResult);
@@ -253,6 +295,49 @@ export default function ScanPage() {
               }}
             />
           </Card>
+
+          {/* Sample pets divider */}
+          <div className="flex items-center gap-4">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Or try with our sample pets
+            </span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          {/* Sample pet cards */}
+          <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+            {[
+              { path: '/test_pics/xiaolin.jpg', name: 'Xiaolin' },
+              { path: '/test_pics/zhangyuanyuan.jpg', name: 'Zhang Yuanyuan' },
+            ].map((pet) => (
+              <button
+                key={pet.name}
+                onClick={() => handleSampleImage(pet.path, pet.name)}
+                disabled={loadingSample !== null}
+                className="group relative flex flex-col items-center gap-3 rounded-2xl border border-border/60 bg-gradient-to-b from-orange-50/60 to-amber-50/40 dark:from-orange-950/20 dark:to-amber-950/10 p-4 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+              >
+                <div className="relative h-40 w-40 overflow-hidden rounded-xl shadow-sm transition-shadow duration-300 group-hover:shadow-md">
+                  {loadingSample === pet.name ? (
+                    <div className="flex h-full w-full items-center justify-center bg-muted/50">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : (
+                    <Image
+                      src={pet.path}
+                      alt={pet.name}
+                      fill
+                      className="object-cover transition-transform duration-300 group-hover:scale-105"
+                      sizes="160px"
+                    />
+                  )}
+                </div>
+                <span className="text-sm font-semibold text-foreground/80 group-hover:text-primary transition-colors">
+                  {pet.name}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

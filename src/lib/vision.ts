@@ -55,6 +55,13 @@ export async function analyzeImage(base64Image: string): Promise<VisionResult> {
     throw new Error(`Vision API error (${response.status}): ${errorText}`);
   }
 
+  const responseContentType = response.headers.get('content-type');
+  if (!responseContentType?.includes('application/json')) {
+    throw new Error(
+      `Vision API returned unexpected content-type: ${responseContentType}`
+    );
+  }
+
   const data: VisionResponse = await response.json();
   const result = data.responses[0];
 
